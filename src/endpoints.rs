@@ -3,8 +3,9 @@ use std::sync::Arc;
 use eyre::eyre;
 use teloxide::{
     Bot,
+    payloads::SendMessageSetters,
     prelude::Requester,
-    types::{Message, MessageKind, User},
+    types::{Message, MessageKind, ParseMode, User},
     utils::command::BotCommands,
 };
 use tokio::sync::RwLock;
@@ -45,7 +46,7 @@ pub async fn process_command(
                 let latest_message = latest_message.write().await;
                 latest_message
                     .as_ref()
-                    .ok_or_else(|| eyre!("No message"))?
+                    .ok_or_else(|| eyre!("No latest message"))?
                     .clone()
             };
 
@@ -63,16 +64,29 @@ pub async fn process_command(
                         .and_then(|u| u.username)
                         .unwrap_or_default();
 
-                    pylon_client
+                    let response = pylon_client
                         .create_issue(
                             &format!("New issue from {username} on {chat_title}"),
                             message_text,
                             pylon_account,
                         )
                         .await?;
+
+                    bot.send_message(
+                        message.chat.id,
+                        format!(
+                            "✅ New issue [\\#{}]({}) created in Pylon",
+                            response.number.unwrap_or_default(),
+                            response.link.unwrap_or_default()
+                        ),
+                    )
+                    .parse_mode(ParseMode::MarkdownV2)
+                    .await?;
                 } else {
-                    warn!("No Pylon account defined for chat {chat_title}",);
+                    warn!("No Pylon account defined for chat {chat_title}");
                 }
+            } else {
+                debug!("Not a text message")
             }
         }
     };
