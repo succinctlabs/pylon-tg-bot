@@ -9,7 +9,7 @@ use teloxide::{
     types::{Message, Update},
 };
 use tokio::sync::RwLock;
-use tracing::error;
+use tracing::{error, warn};
 
 use crate::{
     cli::Args,
@@ -27,7 +27,10 @@ mod pylon;
 
 #[tokio::main]
 async fn main() -> eyre::Result<()> {
-    dotenvy::dotenv()?;
+    if let Err(err) = dotenvy::dotenv() {
+        warn!("Failed to load .env file: {err}")
+    }
+
     tracing_subscriber::fmt::init();
 
     let args = Args::parse();
