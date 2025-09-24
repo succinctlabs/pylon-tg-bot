@@ -32,7 +32,8 @@ async fn main() -> eyre::Result<()> {
 
     let args = Args::parse();
     let settings = Arc::new(RwLock::new(confy::load_path::<Settings>(
-        "./settings.toml",
+        args.settings_path
+            .unwrap_or_else(|| "./settings.toml".to_string()),
     )?));
     let latest_message: Arc<RwLock<Option<Message>>> = Arc::new(RwLock::new(None));
     let pylon_client = Arc::new(PylonClient::new(args.pylon_api_token.clone()));
