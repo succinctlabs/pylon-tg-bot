@@ -1,11 +1,10 @@
 use std::sync::Arc;
 
-use eyre::eyre;
 use teloxide::{
     Bot,
     payloads::SendMessageSetters,
     prelude::Requester,
-    types::{Message, MessageKind, ParseMode, User},
+    types::{Message, MessageKind, ParseMode},
     utils::command::BotCommands,
 };
 use tokio::sync::RwLock;
@@ -30,7 +29,6 @@ pub async fn process_command(
     cmd: Command,
     pylon_client: Arc<PylonClient>,
     settings: Arc<RwLock<Settings>>,
-    latest_message: Arc<RwLock<Option<Message>>>,
 ) -> eyre::Result<()> {
     let settings = settings.read().await;
 
@@ -40,30 +38,29 @@ pub async fn process_command(
                 .await?;
         }
         Command::Issue => {
+            let username = message
+                .from
+                .clone()
+                .and_then(|u| u.username)
+                .unwrap_or_default();
+
+            let chat_title = message.chat.title().unwrap_or_default();
+
             let message = if let Some(replied) = message.reply_to_message() {
                 replied.clone()
             } else {
-                let latest_message = latest_message.write().await;
-                latest_message
-                    .as_ref()
-                    .ok_or_else(|| eyre!("No latest message"))?
-                    .clone()
+                warn!("/issue called without replying by {username} in {chat_title}");
+
+                return Ok(());
             };
 
             if let Some(message_text) = message.text() {
                 info!("New message: {message_text}");
-                let chat_title = message.chat.title().unwrap_or_default();
 
                 if let Some(pylon_account) = settings
                     .tg_chats_to_pylon_accounts
                     .get(&message.chat.id.to_string())
                 {
-                    let username = message
-                        .from
-                        .clone()
-                        .and_then(|u| u.username)
-                        .unwrap_or_default();
-
                     let response = pylon_client
                         .create_issue(
                             &format!("New issue from {username} on {chat_title}"),
@@ -90,30 +87,6 @@ pub async fn process_command(
             }
         }
     };
-
-    Ok(())
-}
-
-/// Replies to the user's text messages
-pub async fn process_text_message(
-    user: User,
-    message: Message,
-    settings: Arc<RwLock<Settings>>,
-    latest_message: Arc<RwLock<Option<Message>>>,
-) -> eyre::Result<()> {
-    let settings = settings.read().await;
-
-    if let Some(username) = &user.username {
-        if settings.ignored_tg_usernames.contains(username) {
-            debug!("User {username} message is ignored");
-
-            return Ok(());
-        }
-
-        if message.text().is_some() {
-            let _ = latest_message.write().await.replace(message);
-        }
-    }
 
     Ok(())
 }

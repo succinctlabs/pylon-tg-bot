@@ -4,7 +4,7 @@ use clap::Parser;
 use notify::{RecursiveMode, Watcher};
 use teloxide::{
     Bot,
-    dispatching::{HandlerExt, MessageFilterExt, UpdateFilterExt},
+    dispatching::{HandlerExt, UpdateFilterExt},
     dptree::{deps, entry},
     prelude::Dispatcher,
     types::{Message, Update},
@@ -19,7 +19,7 @@ use tracing::{error, info, warn};
 use crate::{
     cli::Args,
     config::Settings,
-    endpoints::{Command, handle_bot_status_change, process_command, process_text_message},
+    endpoints::{Command, handle_bot_status_change, process_command},
     pylon::PylonClient,
 };
 
@@ -96,7 +96,6 @@ async fn main() -> eyre::Result<()> {
                 .filter_command::<Command>()
                 .endpoint(process_command),
         )
-        .branch(Message::filter_text().endpoint(process_text_message))
         .branch(Update::filter_message().endpoint(handle_bot_status_change));
 
     Dispatcher::builder(bot, schema)
