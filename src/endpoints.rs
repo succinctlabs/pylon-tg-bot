@@ -20,7 +20,7 @@ pub enum Command {
     Help,
     /// Create an issue.
     #[command()]
-    Issue,
+    Issue(String),
 }
 
 pub async fn process_command(
@@ -37,14 +37,20 @@ pub async fn process_command(
             bot.send_message(message.chat.id, Command::descriptions().to_string())
                 .await?;
         }
-        Command::Issue => {
+        Command::Issue(title) => {
             let username = message
                 .from
                 .clone()
                 .and_then(|u| u.username)
                 .unwrap_or_default();
-
             let chat_title = message.chat.title().unwrap_or_default();
+            let message_title = title.trim();
+
+            let message_title = if message_title.is_empty() {
+                format!("New issue from {username} on {chat_title}")
+            } else {
+                message_title.to_string()
+            };
 
             let message = if let Some(replied) = message.reply_to_message() {
                 replied.clone()
@@ -55,18 +61,14 @@ pub async fn process_command(
             };
 
             if let Some(message_text) = message.text() {
-                info!("New message: {message_text}");
+                info!("New message from {username} in {chat_title}: {message_text}");
 
                 if let Some(pylon_account) = settings
                     .tg_chats_to_pylon_accounts
                     .get(&message.chat.id.to_string())
                 {
                     let response = pylon_client
-                        .create_issue(
-                            &format!("New issue from {username} on {chat_title}"),
-                            message_text,
-                            pylon_account,
-                        )
+                        .create_issue(&message_title, message_text, pylon_account)
                         .await?;
 
                     bot.send_message(
