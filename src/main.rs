@@ -14,7 +14,11 @@ use tokio::{
     sync::{RwLock, mpsc::unbounded_channel},
 };
 use tokio_util::sync::CancellationToken;
-use tracing::{error, info, warn};
+use tracing::{error, info, level_filters::LevelFilter, warn};
+use tracing_appender::rolling;
+use tracing_subscriber::{
+    EnvFilter, Layer, fmt::layer, layer::SubscriberExt, util::SubscriberInitExt,
+};
 
 use crate::{
     cli::Args,
@@ -36,9 +40,37 @@ async fn main() -> eyre::Result<()> {
         warn!("Failed to load .env file: {err}")
     }
 
-    tracing_subscriber::fmt::init();
-
     let args = Args::parse();
+
+    let (file_layer, _guard) = if let Some(logs_path) = args.logs_path {
+        // Create a rolling file appender
+        let file_appender = rolling::never(logs_path, "logs.txt");
+
+        // Create a layer that writes to the file
+        let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
+
+        let layer = layer()
+            .compact()
+            .with_target(false)
+            .with_writer(non_blocking)
+            .with_filter(LevelFilter::INFO);
+
+        (Some(layer), Some(_guard))
+    } else {
+        (None, None)
+    };
+
+    tracing_subscriber::registry()
+        .with(
+            layer().compact().with_target(false).with_filter(
+                EnvFilter::builder()
+                    .with_default_directive(LevelFilter::INFO.into())
+                    .from_env_lossy(),
+            ),
+        )
+        .with(file_layer)
+        .init();
+
     let settings_path = args
         .settings_path
         .unwrap_or_else(|| "./settings.toml".to_string());
@@ -98,6 +130,7 @@ async fn main() -> eyre::Result<()> {
         )
         .branch(Update::filter_message().endpoint(handle_bot_status_change));
 
+    info!("Starting bot...");
     Dispatcher::builder(bot, schema)
         .dependencies(deps![pylon_client, settings, latest_message])
         .enable_ctrlc_handler()

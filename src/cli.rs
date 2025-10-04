@@ -8,4 +8,7 @@ pub struct Args {
 
     #[clap(long, env)]
     pub settings_path: Option<String>,
+
+    #[clap(long, env)]
+    pub logs_path: Option<String>,
 }
