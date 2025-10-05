@@ -1,6 +1,5 @@
 use std::sync::Arc;
 
-use madato::{mk_table, types::TableRow};
 use teloxide::{
     Bot,
     payloads::SendMessageSetters,
@@ -160,62 +159,56 @@ async fn list_accounts(
     pylon_client: Arc<PylonClient>,
     settings: RwLockReadGuard<'_, Settings>,
 ) -> eyre::Result<()> {
-    let mut linked = vec![];
-    let mut not_linked = vec![];
-    let mut bot_not_member = vec![];
+    let mut linked = String::new();
+    let mut not_linked = String::new();
+    let mut bot_not_member = String::new();
 
     for (chat_id, pylon_account_id) in &settings.tg_chats_to_pylon_accounts {
-        let mut r = TableRow::new();
         let chat = bot.get_chat(chat_id.clone()).await?;
         let chat_title = chat.title().map(|s| s.to_string()).unwrap_or_default();
+
         if pylon_account_id.is_empty() {
-            r.insert(String::from("Chat"), chat_title.clone());
-            not_linked.push(r);
+            not_linked.push_str(&format!("\\* {chat_title}\n"));
         } else {
             let pylon_account = pylon_client.get_account(pylon_account_id).await?;
-            r.insert(String::from("Chat"), chat_title.clone());
-            r.insert(
-                String::from("Pylon Account"),
-                pylon_account.name.unwrap_or_default(),
-            );
-            linked.push(r);
+
+            linked.push_str(&format!(
+                "\\* {chat_title} → {}\n",
+                pylon_account.name.unwrap_or_default()
+            ));
         }
 
         if !is_bot_member(bot, chat.id).await? {
-            let mut r = TableRow::new();
-            r.insert(String::from("Chat"), chat_title);
-            bot_not_member.push(r);
+            bot_not_member.push_str(&format!("\\* {chat_title}\n"));
         }
     }
 
     let linked_table = if linked.is_empty() {
         String::from("No data")
     } else {
-        escape_markdown_v2(&mk_table(&linked[..], &None))
+        linked
     };
     let not_linked_table = if not_linked.is_empty() {
         String::from("No data")
     } else {
-        escape_markdown_v2(&mk_table(&not_linked[..], &None))
+        not_linked
     };
     let bot_not_member_table = if bot_not_member.is_empty() {
         String::from("No data")
     } else {
-        escape_markdown_v2(&mk_table(&bot_not_member[..], &None))
+        bot_not_member
     };
 
     bot.send_message(
         chat_id,
         format!(
             "
-            **✅ Chats linked to Pylon accounts** \
-            {linked_table} \
-            \
-            **❌ Chats not linked to Pylon accounts** \
-            {not_linked_table} \
-            \
-            **⚠️ Chats without the bot added**\
-            {bot_not_member_table}\
+            *✅ Chats linked to Pylon accounts*\n
+            {linked_table}\n
+            *❌ Chats not linked to Pylon accounts*\n
+            {not_linked_table}\n
+            *⚠️ Chats without the bot added*\n
+            {bot_not_member_table}\n
             "
         ),
     )
@@ -233,14 +226,4 @@ async fn is_bot_member(bot: &Bot, chat_id: ChatId) -> eyre::Result<bool> {
         member.status(),
         ChatMemberStatus::Member | ChatMemberStatus::Administrator | ChatMemberStatus::Owner
     ))
-}
-
-fn escape_markdown_v2(text: &str) -> String {
-    text.chars()
-        .map(|c| match c {
-            '_' | '*' | '[' | ']' | '(' | ')' | '~' | '`' | '>' | '#' | '+' | '-' | '=' | '|'
-            | '{' | '}' | '.' | '!' => format!("\\{}", c),
-            _ => c.to_string(),
-        })
-        .collect()
 }
