@@ -5,7 +5,7 @@ pub use issue::Issue;
 mod responses;
 pub use responses::SuccessResponse;
 
-use crate::pylon::responses::{CreateIssueResponse, ErrorResponse};
+use crate::pylon::responses::{CreateIssueResponse, ErrorResponse, GetAccountResponse};
 
 const PYLON_API_URL: &str = "https://api.usepylon.com";
 
@@ -46,9 +46,27 @@ impl PylonClient {
 
         match response.status().as_u16() {
             200 => {
-                let response = response
-                    .json::<SuccessResponse<CreateIssueResponse>>()
-                    .await?;
+                let response = response.json::<SuccessResponse<_>>().await?;
+                Ok(response.data)
+            }
+            _ => {
+                let response = response.json::<ErrorResponse>().await?;
+                Err(eyre!("{}", response.errors.join(", ")))
+            }
+        }
+    }
+
+    pub async fn get_account(&self, id: &str) -> Result<GetAccountResponse, eyre::Error> {
+        let response = self
+            .http_client
+            .get(format!("{PYLON_API_URL}/accounts/{id}"))
+            .bearer_auth(&self.api_token)
+            .send()
+            .await?;
+
+        match response.status().as_u16() {
+            200 => {
+                let response = response.json::<SuccessResponse<_>>().await?;
                 Ok(response.data)
             }
             _ => {

@@ -5,5 +5,5 @@ use serde::{Deserialize, Serialize};
 #[derive(Default, Debug, Clone, Serialize, Deserialize)]
 pub struct Settings {
     pub tg_chats_to_pylon_accounts: HashMap<String, String>,
-    pub ignored_tg_usernames: HashSet<String>,
+    pub bot_admins: HashSet<String>,
 }

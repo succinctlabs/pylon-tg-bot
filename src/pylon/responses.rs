@@ -14,6 +14,12 @@ pub struct CreateIssueResponse {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+pub struct GetAccountResponse {
+    pub id: Option<String>,
+    pub name: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
 pub struct ErrorResponse {
     pub errors: Vec<String>,
     pub exists_id: Option<String>,

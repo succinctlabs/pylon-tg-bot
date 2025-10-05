@@ -1,13 +1,14 @@
 use std::sync::Arc;
 
+use madato::{mk_table, types::TableRow};
 use teloxide::{
     Bot,
     payloads::SendMessageSetters,
     prelude::Requester,
-    types::{Message, MessageKind, ParseMode},
+    types::{ChatId, ChatKind, ChatMemberStatus, Message, MessageKind, ParseMode},
     utils::command::BotCommands,
 };
-use tokio::sync::RwLock;
+use tokio::sync::{RwLock, RwLockReadGuard};
 use tracing::{debug, info, warn};
 
 use crate::{BOT_USERNAME, config::Settings, pylon::PylonClient};
@@ -21,6 +22,9 @@ pub enum Command {
     /// Create an issue.
     #[command()]
     Issue(String),
+    /// List all chats linked to Pylon accounts.
+    #[command()]
+    List,
 }
 
 pub async fn process_command(
@@ -30,62 +34,27 @@ pub async fn process_command(
     pylon_client: Arc<PylonClient>,
     settings: Arc<RwLock<Settings>>,
 ) -> eyre::Result<()> {
-    let settings = settings.read().await;
-
     match cmd {
         Command::Help => {
             bot.send_message(message.chat.id, Command::descriptions().to_string())
                 .await?;
         }
-        Command::Issue(title) => {
-            let username = message
-                .from
-                .clone()
-                .and_then(|u| u.username)
-                .unwrap_or_default();
-            let chat_title = message.chat.title().unwrap_or_default();
-            let message_title = title.trim();
-
-            let message_title = if message_title.is_empty() {
-                format!("New issue from {username} on {chat_title}")
-            } else {
-                message_title.to_string()
-            };
-
-            let message = if let Some(replied) = message.reply_to_message() {
-                replied.clone()
-            } else {
-                warn!("/issue called without replying by {username} in {chat_title}");
-
+        Command::Issue(title) => new_issue(title, &bot, message, pylon_client, settings).await?,
+        Command::List => {
+            if !matches!(message.chat.kind, ChatKind::Private(_)) {
+                warn!("/list is only authorized in a private chat with the bot");
                 return Ok(());
-            };
+            }
 
-            if let Some(message_text) = message.text() {
-                info!("New message from {username} in {chat_title}: {message_text}");
+            let settings = settings.read().await;
 
-                if let Some(pylon_account) = settings
-                    .tg_chats_to_pylon_accounts
-                    .get(&message.chat.id.to_string())
-                {
-                    let response = pylon_client
-                        .create_issue(&message_title, message_text, pylon_account)
-                        .await?;
-
-                    bot.send_message(
-                        message.chat.id,
-                        format!(
-                            "✅ New issue [\\#{}]({}) created in Pylon",
-                            response.number.unwrap_or_default(),
-                            response.link.unwrap_or_default()
-                        ),
-                    )
-                    .parse_mode(ParseMode::MarkdownV2)
-                    .await?;
-                } else {
-                    warn!("No Pylon account defined for chat {chat_title}");
-                }
+            if let Some(user) = message.from
+                && let Some(username) = user.username
+                && settings.bot_admins.contains(&username)
+            {
+                list_accounts(&bot, message.chat.id, pylon_client, settings).await?
             } else {
-                debug!("Not a text message")
+                warn!("Unauthorized call to /list")
             }
         }
     };
@@ -121,4 +90,133 @@ pub async fn handle_bot_status_change(message: Message) -> eyre::Result<()> {
     }
 
     Ok(())
+}
+
+async fn new_issue(
+    title: String,
+    bot: &Bot,
+    message: Message,
+    pylon_client: Arc<PylonClient>,
+    settings: Arc<RwLock<Settings>>,
+) -> eyre::Result<()> {
+    let settings = settings.read().await;
+
+    let username = message
+        .from
+        .clone()
+        .and_then(|u| u.username)
+        .unwrap_or_default();
+    let chat_title = message.chat.title().unwrap_or_default();
+    let message_title = title.trim();
+
+    let message_title = if message_title.is_empty() {
+        format!("New issue from {username} on {chat_title}")
+    } else {
+        message_title.to_string()
+    };
+
+    let message = if let Some(replied) = message.reply_to_message() {
+        replied.clone()
+    } else {
+        warn!("/issue called without replying by {username} in {chat_title}");
+
+        return Ok(());
+    };
+
+    if let Some(message_text) = message.text() {
+        info!("New message from {username} in {chat_title}: {message_text}");
+
+        if let Some(pylon_account) = settings
+            .tg_chats_to_pylon_accounts
+            .get(&message.chat.id.to_string())
+        {
+            let response = pylon_client
+                .create_issue(&message_title, message_text, pylon_account)
+                .await?;
+
+            bot.send_message(
+                message.chat.id,
+                format!(
+                    "✅ New issue [\\#{}]({}) created in Pylon",
+                    response.number.unwrap_or_default(),
+                    response.link.unwrap_or_default()
+                ),
+            )
+            .parse_mode(ParseMode::MarkdownV2)
+            .await?;
+        } else {
+            warn!("No Pylon account defined for chat {chat_title}");
+        }
+    } else {
+        debug!("Not a text message")
+    }
+
+    Ok(())
+}
+
+async fn list_accounts(
+    bot: &Bot,
+    chat_id: ChatId,
+    pylon_client: Arc<PylonClient>,
+    settings: RwLockReadGuard<'_, Settings>,
+) -> eyre::Result<()> {
+    let mut linked = vec![];
+    let mut not_linked = vec![];
+    let mut bot_not_member = vec![];
+
+    for (chat_id, pylon_account_id) in &settings.tg_chats_to_pylon_accounts {
+        let mut r = TableRow::new();
+        let chat = bot.get_chat(chat_id.clone()).await?;
+        let chat_title = chat.title().map(|s| s.to_string()).unwrap_or_default();
+        if pylon_account_id.is_empty() {
+            r.insert(String::from("Chat"), chat_title.clone());
+            not_linked.push(r);
+        } else {
+            let pylon_account = pylon_client.get_account(pylon_account_id).await?;
+            r.insert(String::from("Chat"), chat_title.clone());
+            r.insert(
+                String::from("Pylon Account"),
+                pylon_account.name.unwrap_or_default(),
+            );
+            linked.push(r);
+        }
+
+        if !is_bot_member(bot, chat.id).await? {
+            let mut r = TableRow::new();
+            r.insert(String::from("Chat"), chat_title);
+            bot_not_member.push(r);
+        }
+    }
+
+    let linked_table = mk_table(&linked[..], &None);
+    let not_linked_table = mk_table(&not_linked[..], &None);
+    let bot_not_member_table = mk_table(&bot_not_member[..], &None);
+
+    bot.send_message(
+        chat_id,
+        format!(
+            "### ✅ Chats linked to Pylon accounts \
+            {linked_table} \
+            \
+            ### ❌ Chats not linked to Pylon accounts \
+            {not_linked_table} \
+            \
+            ### ⚠️ Chats without the bot added \
+            {bot_not_member_table}"
+        ),
+    )
+    .parse_mode(ParseMode::MarkdownV2)
+    .await?;
+
+    Ok(())
+}
+
+async fn is_bot_member(bot: &Bot, chat_id: ChatId) -> eyre::Result<bool> {
+    let bot_user = bot.get_me().await?;
+    let member = bot.get_chat_member(chat_id, bot_user.id).await?;
+
+    Ok(matches!(
+        member.status(),
+        ChatMemberStatus::Member | ChatMemberStatus::Administrator | ChatMemberStatus::Owner
+    ))
 }
