@@ -168,12 +168,12 @@ async fn list_accounts(
         let chat_title = escape_markdown_v2(chat.title().unwrap_or_default());
 
         if pylon_account_id.is_empty() {
-            not_linked.push_str(&format!("\\* {chat_title}\n"));
+            not_linked.push_str(&format!(" \\- {chat_title}\n"));
         } else {
             let pylon_account = pylon_client.get_account(pylon_account_id).await?;
 
             linked.push_str(&format!(
-                "\\* {chat_title} → {}\n",
+                "\\* {chat_title} ➡️ {}\n",
                 escape_markdown_v2(pylon_account.name.unwrap_or_default().as_str())
             ));
         }
@@ -202,14 +202,12 @@ async fn list_accounts(
     bot.send_message(
         chat_id,
         format!(
-            "
-            *✅ Chats linked to Pylon accounts*\n
-            {linked_table}\n
-            *❌ Chats not linked to Pylon accounts*\n
-            {not_linked_table}\n
-            *⚠️ Chats without the bot added*\n
-            {bot_not_member_table}\n
-            "
+            "*✅ Chats linked to Pylon accounts*\n \
+            {linked_table}\n \
+            *❌ Chats not linked to Pylon accounts*\n \
+            {not_linked_table}\n \
+            *⚠️ Chats without the bot added*\n \
+            {bot_not_member_table}\n"
         ),
     )
     .parse_mode(ParseMode::MarkdownV2)
