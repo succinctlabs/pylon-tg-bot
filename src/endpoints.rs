@@ -165,7 +165,7 @@ async fn list_accounts(
 
     for (chat_id, pylon_account_id) in &settings.tg_chats_to_pylon_accounts {
         let chat = bot.get_chat(chat_id.clone()).await?;
-        let chat_title = chat.title().map(|s| s.to_string()).unwrap_or_default();
+        let chat_title = escape_markdown_v2(chat.title().unwrap_or_default());
 
         if pylon_account_id.is_empty() {
             not_linked.push_str(&format!("\\* {chat_title}\n"));
@@ -174,7 +174,7 @@ async fn list_accounts(
 
             linked.push_str(&format!(
                 "\\* {chat_title} → {}\n",
-                pylon_account.name.unwrap_or_default()
+                escape_markdown_v2(pylon_account.name.unwrap_or_default().as_str())
             ));
         }
 
@@ -226,4 +226,14 @@ async fn is_bot_member(bot: &Bot, chat_id: ChatId) -> eyre::Result<bool> {
         member.status(),
         ChatMemberStatus::Member | ChatMemberStatus::Administrator | ChatMemberStatus::Owner
     ))
+}
+
+fn escape_markdown_v2(text: &str) -> String {
+    text.chars()
+        .map(|c| match c {
+            '_' | '*' | '[' | ']' | '(' | ')' | '~' | '`' | '>' | '#' | '+' | '-' | '=' | '|'
+            | '{' | '}' | '.' | '!' => format!("\\{}", c),
+            _ => c.to_string(),
+        })
+        .collect()
 }
