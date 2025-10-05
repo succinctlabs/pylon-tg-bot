@@ -195,14 +195,16 @@ async fn list_accounts(
     bot.send_message(
         chat_id,
         format!(
-            "**✅ Chats linked to Pylon accounts** \
+            "```
+            **✅ Chats linked to Pylon accounts** \
             {linked_table} \
             \
             **❌ Chats not linked to Pylon accounts** \
             {not_linked_table} \
             \
             **⚠️ Chats without the bot added**\
-            {bot_not_member_table}"
+            {bot_not_member_table}\
+            ```"
         ),
     )
     .parse_mode(ParseMode::MarkdownV2)
