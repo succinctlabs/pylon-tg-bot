@@ -173,13 +173,13 @@ async fn list_accounts(
             let pylon_account = pylon_client.get_account(pylon_account_id).await?;
 
             linked.push_str(&format!(
-                "\\* {chat_title} ➡️ {}\n",
+                " \\- {chat_title} ➡️ {}\n",
                 escape_markdown_v2(pylon_account.name.unwrap_or_default().as_str())
             ));
         }
 
         if !is_bot_member(bot, chat.id).await? {
-            bot_not_member.push_str(&format!("\\* {chat_title}\n"));
+            bot_not_member.push_str(&format!(" \\- {chat_title}\n"));
         }
     }
 
