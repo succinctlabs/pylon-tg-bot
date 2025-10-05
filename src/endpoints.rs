@@ -188,14 +188,26 @@ async fn list_accounts(
         }
     }
 
-    let linked_table = mk_table(&linked[..], &None);
-    let not_linked_table = mk_table(&not_linked[..], &None);
-    let bot_not_member_table = mk_table(&bot_not_member[..], &None);
+    let linked_table = if linked.is_empty() {
+        String::from("No data")
+    } else {
+        escape_markdown_v2(&mk_table(&linked[..], &None))
+    };
+    let not_linked_table = if not_linked.is_empty() {
+        String::from("No data")
+    } else {
+        escape_markdown_v2(&mk_table(&not_linked[..], &None))
+    };
+    let bot_not_member_table = if bot_not_member.is_empty() {
+        String::from("No data")
+    } else {
+        escape_markdown_v2(&mk_table(&bot_not_member[..], &None))
+    };
 
     bot.send_message(
         chat_id,
         format!(
-            "```
+            "
             **✅ Chats linked to Pylon accounts** \
             {linked_table} \
             \
@@ -204,7 +216,7 @@ async fn list_accounts(
             \
             **⚠️ Chats without the bot added**\
             {bot_not_member_table}\
-            ```"
+            "
         ),
     )
     .parse_mode(ParseMode::MarkdownV2)
@@ -221,4 +233,14 @@ async fn is_bot_member(bot: &Bot, chat_id: ChatId) -> eyre::Result<bool> {
         member.status(),
         ChatMemberStatus::Member | ChatMemberStatus::Administrator | ChatMemberStatus::Owner
     ))
+}
+
+fn escape_markdown_v2(text: &str) -> String {
+    text.chars()
+        .map(|c| match c {
+            '_' | '*' | '[' | ']' | '(' | ')' | '~' | '`' | '>' | '#' | '+' | '-' | '=' | '|'
+            | '{' | '}' | '.' | '!' => format!("\\{}", c),
+            _ => c.to_string(),
+        })
+        .collect()
 }
