@@ -56,7 +56,7 @@ impl PylonClient {
         }
     }
 
-    pub async fn get_account(&self, id: &str) -> Result<GetAccountResponse, eyre::Error> {
+    pub async fn get_account(&self, id: &str) -> Result<Option<GetAccountResponse>, eyre::Error> {
         let response = self
             .http_client
             .get(format!("{PYLON_API_URL}/accounts/{id}"))
@@ -67,8 +67,9 @@ impl PylonClient {
         match response.status().as_u16() {
             200 => {
                 let response = response.json::<SuccessResponse<_>>().await?;
-                Ok(response.data)
+                Ok(Some(response.data))
             }
+            404 => Ok(None),
             _ => {
                 let response = response.json::<ErrorResponse>().await?;
                 Err(eyre!("{}", response.errors.join(", ")))

@@ -1,16 +1,24 @@
 use std::sync::Arc;
 
+use serde::{Deserialize, Serialize};
 use teloxide::{
     Bot,
+    dispatching::dialogue::{GetChatId, InMemStorage},
     payloads::SendMessageSetters,
-    prelude::Requester,
-    types::{ChatId, ChatKind, ChatMemberStatus, Message, MessageKind, ParseMode},
+    prelude::{Dialogue, Requester},
+    types::{
+        CallbackQuery, ChatId, ChatKind, ChatMemberStatus, InlineKeyboardButton, Message,
+        MessageKind, ParseMode,
+    },
     utils::command::BotCommands,
 };
-use tokio::sync::{RwLock, RwLockReadGuard};
 use tracing::{debug, info, warn};
 
-use crate::{BOT_USERNAME, config::Settings, pylon::PylonClient};
+use crate::{
+    BOT_USERNAME,
+    config::{Config, Settings},
+    pylon::PylonClient,
+};
 
 #[derive(BotCommands, Clone)]
 #[command(rename_rule = "lowercase")]
@@ -40,19 +48,30 @@ pub enum AdminCommand {
     Link,
 }
 
+#[derive(Clone, Default, Serialize, Deserialize)]
+pub enum State {
+    #[default]
+    Start,
+    WaitingForAccountId {
+        chat_id: String,
+    },
+}
+
+type LinkToPylonAccountDialogue = Dialogue<State, InMemStorage<State>>;
+
 pub async fn process_command(
     bot: Bot,
     message: Message,
     cmd: Command,
     pylon_client: Arc<PylonClient>,
-    settings: Arc<RwLock<Settings>>,
+    config: Arc<Config>,
 ) -> eyre::Result<()> {
     match cmd {
         Command::Help => {
             bot.send_message(message.chat.id, Command::descriptions().to_string())
                 .await?;
         }
-        Command::Issue(title) => new_issue(title, &bot, message, pylon_client, settings).await?,
+        Command::Issue(title) => new_issue(title, &bot, message, pylon_client, config).await?,
     };
 
     Ok(())
@@ -63,14 +82,14 @@ pub async fn process_admin_command(
     message: Message,
     cmd: AdminCommand,
     pylon_client: Arc<PylonClient>,
-    settings: Arc<RwLock<Settings>>,
+    config: Arc<Config>,
 ) -> eyre::Result<()> {
     if is_public_chat(&message) {
         warn!("Admin commands are only authorized in a private chat with the bot");
         return Ok(());
     }
 
-    let settings = settings.read().await;
+    let settings = config.get().await;
 
     if !message
         .from
@@ -88,8 +107,78 @@ pub async fn process_admin_command(
                 .await?;
         }
         AdminCommand::List => list_accounts(&bot, message.chat.id, pylon_client, settings).await?,
-        AdminCommand::Link => {
-            todo!()
+        AdminCommand::Link => link_chat_to_account(&bot, message.chat.id, settings).await?,
+    }
+
+    Ok(())
+}
+
+pub async fn handle_callback(
+    bot: Bot,
+    q: CallbackQuery,
+    dialogue: LinkToPylonAccountDialogue,
+) -> eyre::Result<()> {
+    if let Some(chat_id) = q.data {
+        // Answer the callback to remove loading state
+        bot.answer_callback_query(q.id).await?;
+
+        // Update dialogue state
+        dialogue
+            .update(State::WaitingForAccountId { chat_id })
+            .await?;
+
+        // Prompt for account ID
+        if let Some(message) = q.message
+            && let Some(chat_id) = message.chat().chat_id()
+        {
+            bot.send_message(chat_id, "Please enter the account ID to link this chat to:")
+                .await?;
+        } else {
+            warn!("Can't ask for account id")
+        }
+    }
+
+    Ok(())
+}
+
+pub async fn handle_account_id_input(
+    bot: Bot,
+    message: Message,
+    dialogue: LinkToPylonAccountDialogue,
+    chat_id: String,
+    pylon_client: Arc<PylonClient>,
+    config: Arc<Config>,
+) -> eyre::Result<()> {
+    if let Some(account_id) = message.text() {
+        let account_id = account_id.trim().to_string();
+        let mut settings = config.get().await;
+
+        if let Some(account) = pylon_client.get_account(&account_id).await? {
+            settings
+                .tg_chats_to_pylon_accounts
+                .insert(chat_id.clone(), account_id);
+
+            config.save(settings)?;
+
+            bot.send_message(
+                message.chat.id,
+                format!(
+                    "✅ Chat linked to Pylon account '{}'",
+                    account.name.clone().unwrap_or_default(),
+                ),
+            )
+            .await?;
+
+            // Reset dialogue to start
+            dialogue.update(State::Start).await?;
+
+            info!(
+                "Chat '{chat_id}' linked to Pylon Account '{}'",
+                account.name.unwrap_or_default()
+            );
+        } else {
+            bot.send_message(message.chat.id, "⚠️ Account not found in Pylon")
+                .await?;
         }
     }
 
@@ -131,9 +220,9 @@ async fn new_issue(
     bot: &Bot,
     message: Message,
     pylon_client: Arc<PylonClient>,
-    settings: Arc<RwLock<Settings>>,
+    config: Arc<Config>,
 ) -> eyre::Result<()> {
-    let settings = settings.read().await;
+    let settings = config.get().await;
 
     let username = message
         .from
@@ -192,7 +281,7 @@ async fn list_accounts(
     bot: &Bot,
     chat_id: ChatId,
     pylon_client: Arc<PylonClient>,
-    settings: RwLockReadGuard<'_, Settings>,
+    settings: Settings,
 ) -> eyre::Result<()> {
     let mut linked = String::new();
     let mut not_linked = String::new();
@@ -204,13 +293,13 @@ async fn list_accounts(
 
         if pylon_account_id.is_empty() {
             not_linked.push_str(&format!("• {chat_title}\n"));
-        } else {
-            let pylon_account = pylon_client.get_account(pylon_account_id).await?;
-
+        } else if let Some(pylon_account) = pylon_client.get_account(pylon_account_id).await? {
             linked.push_str(&format!(
                 "• {chat_title} ➡️ {}\n",
                 escape_markdown_v2(pylon_account.name.unwrap_or_default().as_str())
             ));
+        } else {
+            warn!("Account '{pylon_account_id}' not found in Pylon")
         }
 
         if !is_bot_member(bot, chat.id).await? {
@@ -251,13 +340,25 @@ async fn list_accounts(
     Ok(())
 }
 
-async fn link_chat_to_account(
-    bot: &Bot,
-    chat_id: ChatId,
-    pylon_client: Arc<PylonClient>,
-    settings: RwLockReadGuard<'_, Settings>,
-) -> eyre::Result<()> {
-    todo!()
+async fn link_chat_to_account(bot: &Bot, chat_id: ChatId, setting: Settings) -> eyre::Result<()> {
+    // Create inline keyboard with unlinked chats
+    let mut keyboard = Vec::new();
+    for (chat_id, pylon_account_id) in &setting.tg_chats_to_pylon_accounts {
+        if pylon_account_id.trim().is_empty() {
+            let chat = bot.get_chat(chat_id.clone()).await?;
+            let chat_title = escape_markdown_v2(chat.title().unwrap_or_default());
+
+            keyboard.push(vec![InlineKeyboardButton::callback(chat_title, chat_id)]);
+        }
+    }
+
+    let inline_keyboard = teloxide::types::InlineKeyboardMarkup::new(keyboard);
+
+    bot.send_message(chat_id, "Please select a chat to link:")
+        .reply_markup(inline_keyboard)
+        .await?;
+
+    Ok(())
 }
 
 async fn is_bot_member(bot: &Bot, chat_id: ChatId) -> eyre::Result<bool> {

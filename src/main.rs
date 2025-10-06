@@ -4,8 +4,8 @@ use clap::Parser;
 use notify::{RecursiveMode, Watcher};
 use teloxide::{
     Bot,
-    dispatching::{HandlerExt, UpdateFilterExt},
-    dptree::{deps, entry},
+    dispatching::{HandlerExt, UpdateFilterExt, dialogue::InMemStorage},
+    dptree::{case, deps, entry},
     prelude::Dispatcher,
     types::{Message, Update},
 };
@@ -22,10 +22,10 @@ use tracing_subscriber::{
 
 use crate::{
     cli::Args,
-    config::Settings,
+    config::Config,
     endpoints::{
-        AdminCommand, Command, handle_bot_status_change, is_private_chat, is_public_chat,
-        process_admin_command, process_command,
+        AdminCommand, Command, State, handle_account_id_input, handle_bot_status_change,
+        handle_callback, is_private_chat, is_public_chat, process_admin_command, process_command,
     },
     pylon::PylonClient,
 };
@@ -77,12 +77,10 @@ async fn main() -> eyre::Result<()> {
     let settings_path = args
         .settings_path
         .unwrap_or_else(|| "./settings.toml".to_string());
-    let settings = Arc::new(RwLock::new(confy::load_path::<Settings>(
-        settings_path.clone(),
-    )?));
+    let config = Arc::new(Config::try_new(settings_path.clone())?);
     let latest_message: Arc<RwLock<Option<Message>>> = Arc::new(RwLock::new(None));
     let pylon_client = Arc::new(PylonClient::new(args.pylon_api_token.clone()));
-    let settings_reload = settings.clone();
+    let config_reload = config.clone();
     let token = CancellationToken::new();
     let cloned_token = token.clone();
 
@@ -108,12 +106,9 @@ async fn main() -> eyre::Result<()> {
                     match res {
                         Ok(event) => {
                             if event.kind.is_modify()
-                                && let Ok(settings) = confy::load_path::<Settings>(settings_path.clone())
-                            {
-                                let mut settings_reload = settings_reload.write().await;
-                                *settings_reload = settings;
-                                info!("Settings reloaded");
-                            }
+                                && config_reload.reload().await.is_ok() {
+                                    info!("Settings reloaded");
+                                }
                         }
                         Err(e) => error!("watch error: {:?}", e),
                     }
@@ -126,6 +121,7 @@ async fn main() -> eyre::Result<()> {
 
     let schema = Update::filter_message()
         .filter_map(|update: Update| update.from().cloned())
+        .enter_dialogue::<Message, InMemStorage<State>, State>()
         .branch(
             entry()
                 .filter(is_public_chat)
@@ -133,16 +129,20 @@ async fn main() -> eyre::Result<()> {
                 .endpoint(process_command),
         )
         .branch(
-            entry()
-                .filter(is_private_chat)
-                .filter_command::<AdminCommand>()
-                .endpoint(process_admin_command),
+            case![State::Start].branch(
+                entry()
+                    .filter(is_private_chat)
+                    .filter_command::<AdminCommand>()
+                    .endpoint(process_admin_command),
+            ),
         )
+        .branch(case![State::WaitingForAccountId { chat_id }].endpoint(handle_account_id_input))
+        .branch(Update::filter_callback_query().endpoint(handle_callback))
         .branch(Update::filter_message().endpoint(handle_bot_status_change));
 
     info!("Starting bot...");
     Dispatcher::builder(bot, schema)
-        .dependencies(deps![pylon_client, settings, latest_message])
+        .dependencies(deps![pylon_client, config, latest_message])
         .enable_ctrlc_handler()
         .error_handler(Arc::new(|err| {
             error!("{err}");
