@@ -9,10 +9,7 @@ use teloxide::{
     prelude::Dispatcher,
     types::{Message, Update},
 };
-use tokio::{
-    select,
-    sync::{RwLock, mpsc::unbounded_channel},
-};
+use tokio::{select, sync::mpsc::unbounded_channel};
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info, level_filters::LevelFilter, warn};
 use tracing_appender::rolling;
@@ -78,7 +75,6 @@ async fn main() -> eyre::Result<()> {
         .settings_path
         .unwrap_or_else(|| "./settings.toml".to_string());
     let config = Arc::new(Config::try_new(settings_path.clone())?);
-    let latest_message: Arc<RwLock<Option<Message>>> = Arc::new(RwLock::new(None));
     let pylon_client = Arc::new(PylonClient::new(args.pylon_api_token.clone()));
     let config_reload = config.clone();
     let token = CancellationToken::new();
@@ -142,7 +138,7 @@ async fn main() -> eyre::Result<()> {
 
     info!("Starting bot...");
     Dispatcher::builder(bot, schema)
-        .dependencies(deps![pylon_client, config, latest_message])
+        .dependencies(deps![pylon_client, config])
         .enable_ctrlc_handler()
         .error_handler(Arc::new(|err| {
             error!("{err}");
