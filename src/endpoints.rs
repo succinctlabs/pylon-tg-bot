@@ -18,12 +18,26 @@ pub enum Command {
     /// Display this text.
     #[command(aliases = ["h", "?"])]
     Help,
+
     /// Create an issue.
     #[command()]
     Issue(String),
-    /// List all chats linked to Pylon accounts.
+}
+
+#[derive(BotCommands, Clone)]
+#[command(rename_rule = "lowercase")]
+pub enum AdminCommand {
+    /// Display this text.
+    #[command(aliases = ["h", "?"])]
+    Help,
+
+    /// List all chats.
     #[command()]
     List,
+
+    /// Link a chat to a Pylon account.
+    #[command()]
+    Link,
 }
 
 pub async fn process_command(
@@ -39,24 +53,45 @@ pub async fn process_command(
                 .await?;
         }
         Command::Issue(title) => new_issue(title, &bot, message, pylon_client, settings).await?,
-        Command::List => {
-            if !matches!(message.chat.kind, ChatKind::Private(_)) {
-                warn!("/list is only authorized in a private chat with the bot");
-                return Ok(());
-            }
-
-            let settings = settings.read().await;
-
-            if let Some(user) = message.from
-                && let Some(username) = user.username
-                && settings.bot_admins.contains(&username)
-            {
-                list_accounts(&bot, message.chat.id, pylon_client, settings).await?
-            } else {
-                warn!("Unauthorized call to /list")
-            }
-        }
     };
+
+    Ok(())
+}
+
+pub async fn process_admin_command(
+    bot: Bot,
+    message: Message,
+    cmd: AdminCommand,
+    pylon_client: Arc<PylonClient>,
+    settings: Arc<RwLock<Settings>>,
+) -> eyre::Result<()> {
+    if is_public_chat(&message) {
+        warn!("Admin commands are only authorized in a private chat with the bot");
+        return Ok(());
+    }
+
+    let settings = settings.read().await;
+
+    if !message
+        .from
+        .and_then(|user| user.username)
+        .map(|username| settings.bot_admins.contains(&username))
+        .unwrap_or_default()
+    {
+        warn!("Unauthorized call to admin command");
+        return Ok(());
+    }
+
+    match cmd {
+        AdminCommand::Help => {
+            bot.send_message(message.chat.id, AdminCommand::descriptions().to_string())
+                .await?;
+        }
+        AdminCommand::List => list_accounts(&bot, message.chat.id, pylon_client, settings).await?,
+        AdminCommand::Link => {
+            todo!()
+        }
+    }
 
     Ok(())
 }
@@ -168,33 +203,33 @@ async fn list_accounts(
         let chat_title = escape_markdown_v2(chat.title().unwrap_or_default());
 
         if pylon_account_id.is_empty() {
-            not_linked.push_str(&format!(" \\- {chat_title}\n"));
+            not_linked.push_str(&format!("• {chat_title}\n"));
         } else {
             let pylon_account = pylon_client.get_account(pylon_account_id).await?;
 
             linked.push_str(&format!(
-                " \\- {chat_title} ➡️ {}\n",
+                "• {chat_title} ➡️ {}\n",
                 escape_markdown_v2(pylon_account.name.unwrap_or_default().as_str())
             ));
         }
 
         if !is_bot_member(bot, chat.id).await? {
-            bot_not_member.push_str(&format!(" \\- {chat_title}\n"));
+            bot_not_member.push_str(&format!("• {chat_title}\n"));
         }
     }
 
     let linked_table = if linked.is_empty() {
-        String::from("No data")
+        String::from("No data\n")
     } else {
         linked
     };
     let not_linked_table = if not_linked.is_empty() {
-        String::from("No data")
+        String::from("No data\n")
     } else {
         not_linked
     };
     let bot_not_member_table = if bot_not_member.is_empty() {
-        String::from("No data")
+        String::from("No data\n")
     } else {
         bot_not_member
     };
@@ -203,17 +238,26 @@ async fn list_accounts(
         chat_id,
         format!(
             "*✅ Chats linked to Pylon accounts*\n \
-            {linked_table}\n \
+            {linked_table} \
             *❌ Chats not linked to Pylon accounts*\n \
-            {not_linked_table}\n \
+            {not_linked_table} \
             *⚠️ Chats without the bot added*\n \
-            {bot_not_member_table}\n"
+            {bot_not_member_table}"
         ),
     )
     .parse_mode(ParseMode::MarkdownV2)
     .await?;
 
     Ok(())
+}
+
+async fn link_chat_to_account(
+    bot: &Bot,
+    chat_id: ChatId,
+    pylon_client: Arc<PylonClient>,
+    settings: RwLockReadGuard<'_, Settings>,
+) -> eyre::Result<()> {
+    todo!()
 }
 
 async fn is_bot_member(bot: &Bot, chat_id: ChatId) -> eyre::Result<bool> {
@@ -234,4 +278,12 @@ fn escape_markdown_v2(text: &str) -> String {
             _ => c.to_string(),
         })
         .collect()
+}
+
+pub fn is_private_chat(msg: &Message) -> bool {
+    matches!(msg.chat.kind, ChatKind::Private(_))
+}
+
+pub fn is_public_chat(msg: &Message) -> bool {
+    matches!(msg.chat.kind, ChatKind::Public(_))
 }

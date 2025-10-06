@@ -23,7 +23,10 @@ use tracing_subscriber::{
 use crate::{
     cli::Args,
     config::Settings,
-    endpoints::{Command, handle_bot_status_change, process_command},
+    endpoints::{
+        AdminCommand, Command, handle_bot_status_change, is_private_chat, is_public_chat,
+        process_admin_command, process_command,
+    },
     pylon::PylonClient,
 };
 
@@ -125,8 +128,15 @@ async fn main() -> eyre::Result<()> {
         .filter_map(|update: Update| update.from().cloned())
         .branch(
             entry()
+                .filter(is_public_chat)
                 .filter_command::<Command>()
                 .endpoint(process_command),
+        )
+        .branch(
+            entry()
+                .filter(is_private_chat)
+                .filter_command::<AdminCommand>()
+                .endpoint(process_admin_command),
         )
         .branch(Update::filter_message().endpoint(handle_bot_status_change));
 
