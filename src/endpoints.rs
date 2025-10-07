@@ -346,7 +346,7 @@ async fn link_chat_to_account(bot: &Bot, chat_id: ChatId, setting: Settings) -> 
     for (chat_id, pylon_account_id) in &setting.tg_chats_to_pylon_accounts {
         if pylon_account_id.trim().is_empty() {
             let chat = bot.get_chat(chat_id.clone()).await?;
-            let chat_title = escape_markdown_v2(chat.title().unwrap_or_default());
+            let chat_title = chat.title().unwrap_or_default();
 
             keyboard.push(vec![InlineKeyboardButton::callback(chat_title, chat_id)]);
         }
