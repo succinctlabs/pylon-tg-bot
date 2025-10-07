@@ -7,7 +7,7 @@ use teloxide::{
     dispatching::{HandlerExt, UpdateFilterExt, dialogue::InMemStorage},
     dptree::{case, deps, entry},
     prelude::Dispatcher,
-    types::{Message, Update},
+    types::{CallbackQuery, Message, Update},
 };
 use tokio::{select, sync::mpsc::unbounded_channel};
 use tokio_util::sync::CancellationToken;
@@ -125,23 +125,25 @@ async fn main() -> eyre::Result<()> {
                         .filter_command::<Command>()
                         .endpoint(process_command),
                 )
+                .branch(
+                    entry()
+                        .filter(is_private_chat)
+                        .filter_command::<AdminCommand>()
+                        .endpoint(process_admin_command),
+                )
                 .branch(Update::filter_message().endpoint(handle_bot_status_change)),
         )
         .branch(
             Update::filter_message()
                 .enter_dialogue::<Message, InMemStorage<State>, State>()
                 .branch(
-                    case![State::Start].branch(
-                        entry()
-                            .filter(is_private_chat)
-                            .filter_command::<AdminCommand>()
-                            .endpoint(process_admin_command),
-                    ),
-                )
-                .branch(
                     case![State::WaitingForAccountId { chat_id }].endpoint(handle_account_id_input),
-                )
-                .branch(Update::filter_callback_query().endpoint(handle_callback)),
+                ),
+        )
+        .branch(
+            Update::filter_callback_query()
+                .enter_dialogue::<CallbackQuery, InMemStorage<State>, State>()
+                .endpoint(handle_callback),
         );
 
     info!("Starting bot...");
