@@ -84,7 +84,7 @@ pub async fn process_admin_command(
     pylon_client: Arc<PylonClient>,
     config: Arc<Config>,
 ) -> eyre::Result<()> {
-    if is_public_chat(&message) {
+    if is_public_chat(message.clone()) {
         warn!("Admin commands are only authorized in a private chat with the bot");
         return Ok(());
     }
@@ -381,10 +381,10 @@ fn escape_markdown_v2(text: &str) -> String {
         .collect()
 }
 
-pub fn is_private_chat(msg: &Message) -> bool {
+pub fn is_private_chat(msg: Message) -> bool {
     matches!(msg.chat.kind, ChatKind::Private(_))
 }
 
-pub fn is_public_chat(msg: &Message) -> bool {
+pub fn is_public_chat(msg: Message) -> bool {
     matches!(msg.chat.kind, ChatKind::Public(_))
 }

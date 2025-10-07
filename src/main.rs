@@ -115,30 +115,38 @@ async fn main() -> eyre::Result<()> {
 
     let bot = Bot::from_env();
 
-    let schema = Update::filter_message()
-        .filter_map(|update: Update| update.from().cloned())
-        .enter_dialogue::<Message, InMemStorage<State>, State>()
+    let all_handlers = entry()
         .branch(
-            entry()
-                .filter(is_public_chat)
-                .filter_command::<Command>()
-                .endpoint(process_command),
+            Update::filter_message()
+                .filter_map(|update: Update| update.from().cloned())
+                .branch(
+                    entry()
+                        .filter(is_public_chat)
+                        .filter_command::<Command>()
+                        .endpoint(process_command),
+                )
+                .branch(Update::filter_message().endpoint(handle_bot_status_change)),
         )
         .branch(
-            case![State::Start].branch(
-                entry()
-                    .filter(is_private_chat)
-                    .filter_command::<AdminCommand>()
-                    .endpoint(process_admin_command),
-            ),
-        )
-        .branch(case![State::WaitingForAccountId { chat_id }].endpoint(handle_account_id_input))
-        .branch(Update::filter_callback_query().endpoint(handle_callback))
-        .branch(Update::filter_message().endpoint(handle_bot_status_change));
+            Update::filter_message()
+                .enter_dialogue::<Message, InMemStorage<State>, State>()
+                .branch(
+                    case![State::Start].branch(
+                        entry()
+                            .filter(is_private_chat)
+                            .filter_command::<AdminCommand>()
+                            .endpoint(process_admin_command),
+                    ),
+                )
+                .branch(
+                    case![State::WaitingForAccountId { chat_id }].endpoint(handle_account_id_input),
+                )
+                .branch(Update::filter_callback_query().endpoint(handle_callback)),
+        );
 
     info!("Starting bot...");
-    Dispatcher::builder(bot, schema)
-        .dependencies(deps![pylon_client, config])
+    Dispatcher::builder(bot, all_handlers)
+        .dependencies(deps![pylon_client, config, InMemStorage::<State>::new()])
         .enable_ctrlc_handler()
         .error_handler(Arc::new(|err| {
             error!("{err}");
