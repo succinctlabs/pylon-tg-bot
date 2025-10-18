@@ -118,6 +118,13 @@ async fn main() -> eyre::Result<()> {
     let all_handlers = entry()
         .branch(
             Update::filter_message()
+                .enter_dialogue::<Message, InMemStorage<State>, State>()
+                .branch(
+                    case![State::WaitingForAccountId { chat_id }].endpoint(handle_account_id_input),
+                ),
+        )
+        .branch(
+            Update::filter_message()
                 .filter_map(|update: Update| update.from().cloned())
                 .branch(
                     entry()
@@ -132,13 +139,6 @@ async fn main() -> eyre::Result<()> {
                         .endpoint(process_admin_command),
                 )
                 .branch(Update::filter_message().endpoint(handle_bot_status_change)),
-        )
-        .branch(
-            Update::filter_message()
-                .enter_dialogue::<Message, InMemStorage<State>, State>()
-                .branch(
-                    case![State::WaitingForAccountId { chat_id }].endpoint(handle_account_id_input),
-                ),
         )
         .branch(
             Update::filter_callback_query()

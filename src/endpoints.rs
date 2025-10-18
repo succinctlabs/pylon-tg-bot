@@ -179,6 +179,9 @@ pub async fn handle_account_id_input(
         } else {
             bot.send_message(message.chat.id, "⚠️ Account not found in Pylon")
                 .await?;
+
+            // Reset dialogue to start
+            dialogue.update(State::Start).await?;
         }
     }
 
