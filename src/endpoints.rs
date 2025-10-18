@@ -7,8 +7,8 @@ use teloxide::{
     payloads::SendMessageSetters,
     prelude::{Dialogue, Requester},
     types::{
-        CallbackQuery, ChatId, ChatKind, ChatMemberStatus, InlineKeyboardButton, Message,
-        MessageKind, ParseMode,
+        CallbackQuery, ChatAction, ChatId, ChatKind, ChatMemberStatus, InlineKeyboardButton,
+        Message, MessageKind, ParseMode,
     },
     utils::command::BotCommands,
 };
@@ -39,9 +39,17 @@ pub enum AdminCommand {
     #[command(aliases = ["h", "?"])]
     Help,
 
-    /// List all chats.
+    /// List all active chats.
     #[command()]
-    List,
+    Active,
+
+    /// List all TG chats not linked to a Pulon account.
+    #[command()]
+    Unlinked,
+
+    /// List all TG chats configured in the DB but where the bot is not a member.
+    #[command()]
+    Orphans,
 
     /// Link a chat to a Pylon account.
     #[command()]
@@ -106,7 +114,9 @@ pub async fn process_admin_command(
             bot.send_message(message.chat.id, AdminCommand::descriptions().to_string())
                 .await?;
         }
-        AdminCommand::List => list_accounts(&bot, message.chat.id, pylon_client, settings).await?,
+        AdminCommand::Active => active(&bot, message.chat.id, pylon_client, settings).await?,
+        AdminCommand::Unlinked => unlinked(&bot, message.chat.id, settings).await?,
+        AdminCommand::Orphans => orphans(&bot, message.chat.id, settings).await?,
         AdminCommand::Link => link_chat_to_account(&bot, message.chat.id, settings).await?,
     }
 
@@ -280,65 +290,65 @@ async fn new_issue(
     Ok(())
 }
 
-async fn list_accounts(
+async fn active(
     bot: &Bot,
     chat_id: ChatId,
     pylon_client: Arc<PylonClient>,
     settings: Settings,
 ) -> eyre::Result<()> {
-    let mut linked = String::new();
-    let mut not_linked = String::new();
-    let mut bot_not_member = String::new();
+    bot.send_chat_action(chat_id, ChatAction::Typing).await?;
 
-    for (chat_id, pylon_account_id) in &settings.tg_chats_to_pylon_accounts {
-        let chat = bot.get_chat(chat_id.clone()).await?;
+    for (tg_chat_id, pylon_account_id) in &settings.tg_chats_to_pylon_accounts {
+        let chat = bot.get_chat(tg_chat_id.clone()).await?;
         let chat_title = escape_markdown_v2(chat.title().unwrap_or_default());
 
-        if pylon_account_id.is_empty() {
-            not_linked.push_str(&format!("• {chat_title}\n"));
-        } else if let Some(pylon_account) = pylon_client.get_account(pylon_account_id).await? {
-            linked.push_str(&format!(
-                "• {chat_title} ➡️ {}\n",
-                escape_markdown_v2(pylon_account.name.unwrap_or_default().as_str())
-            ));
-        } else {
-            warn!("Account '{pylon_account_id}' not found in Pylon")
-        }
-
-        if !is_bot_member(bot, chat.id).await? {
-            bot_not_member.push_str(&format!("• {chat_title}\n"));
+        if let Some(pylon_account) = pylon_client.get_account(pylon_account_id).await? {
+            bot.send_message(
+                chat_id,
+                format!(
+                    "{chat_title} ➡️ {}\n",
+                    escape_markdown_v2(pylon_account.name.unwrap_or_default().as_str())
+                ),
+            )
+            .parse_mode(ParseMode::MarkdownV2)
+            .await?;
         }
     }
 
-    let linked_table = if linked.is_empty() {
-        String::from("No data\n")
-    } else {
-        linked
-    };
-    let not_linked_table = if not_linked.is_empty() {
-        String::from("No data\n")
-    } else {
-        not_linked
-    };
-    let bot_not_member_table = if bot_not_member.is_empty() {
-        String::from("No data\n")
-    } else {
-        bot_not_member
-    };
+    Ok(())
+}
 
-    bot.send_message(
-        chat_id,
-        format!(
-            "*✅ Chats linked to Pylon accounts*\n \
-            {linked_table} \
-            *❌ Chats not linked to Pylon accounts*\n \
-            {not_linked_table} \
-            *⚠️ Chats without the bot added*\n \
-            {bot_not_member_table}"
-        ),
-    )
-    .parse_mode(ParseMode::MarkdownV2)
-    .await?;
+async fn unlinked(bot: &Bot, chat_id: ChatId, settings: Settings) -> eyre::Result<()> {
+    bot.send_chat_action(chat_id, ChatAction::Typing).await?;
+
+    for (tg_chat_id, pylon_account_id) in &settings.tg_chats_to_pylon_accounts {
+        let chat = bot.get_chat(tg_chat_id.clone()).await?;
+        let chat_title = escape_markdown_v2(chat.title().unwrap_or_default());
+
+        if pylon_account_id.is_empty() {
+            bot.send_message(chat_id, chat_title)
+                .parse_mode(ParseMode::MarkdownV2)
+                .await?;
+        }
+    }
+
+    Ok(())
+}
+
+async fn orphans(bot: &Bot, chat_id: ChatId, settings: Settings) -> eyre::Result<()> {
+    bot.send_chat_action(chat_id, ChatAction::Typing).await?;
+
+    for (tg_chat_id, _) in &settings.tg_chats_to_pylon_accounts {
+        let chat = bot.get_chat(tg_chat_id.clone()).await?;
+
+        if !is_bot_member(bot, chat.id).await? {
+            let chat_title = escape_markdown_v2(chat.title().unwrap_or_default());
+
+            bot.send_message(chat_id, chat_title)
+                .parse_mode(ParseMode::MarkdownV2)
+                .await?;
+        }
+    }
 
     Ok(())
 }
