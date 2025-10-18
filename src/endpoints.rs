@@ -260,7 +260,7 @@ async fn new_issue(
     };
 
     if let Some(message_text) = message.text() {
-        info!("New message from {username} in {chat_title}: {message_text}");
+        debug!("New message from {username} in {chat_title}: {message_text}");
 
         if let Some(pylon_account) = settings
             .tg_chats_to_pylon_accounts
