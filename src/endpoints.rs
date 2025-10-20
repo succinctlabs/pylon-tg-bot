@@ -198,7 +198,7 @@ pub async fn handle_account_id_input(
     Ok(())
 }
 
-pub async fn handle_bot_status_change(message: Message) -> eyre::Result<()> {
+pub async fn handle_bot_status_change(message: Message, config: Arc<Config>) -> eyre::Result<()> {
     match message.kind {
         MessageKind::NewChatMembers(members) => {
             if members
@@ -206,6 +206,14 @@ pub async fn handle_bot_status_change(message: Message) -> eyre::Result<()> {
                 .into_iter()
                 .any(|m| m.username == Some(BOT_USERNAME.to_string()))
             {
+                let mut settings = config.get().await;
+
+                settings
+                    .tg_chats_to_pylon_accounts
+                    .insert(message.chat.id.to_string(), String::default());
+
+                config.save(settings)?;
+
                 info!(
                     "Bot was added to chat: {}, {}",
                     message.chat.id,
