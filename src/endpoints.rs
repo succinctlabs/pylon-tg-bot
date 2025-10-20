@@ -393,6 +393,13 @@ async fn link_chat_to_account(bot: &Bot, chat_id: ChatId, setting: Settings) -> 
         }
     }
 
+    if keyboard.is_empty() {
+        bot.send_message(chat_id, "✅ No unlinked chats found.")
+            .parse_mode(ParseMode::MarkdownV2)
+            .await?;
+        return Ok(());
+    }
+
     let inline_keyboard = teloxide::types::InlineKeyboardMarkup::new(keyboard);
 
     bot.send_message(chat_id, "Please select a chat to link:")
