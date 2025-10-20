@@ -42,11 +42,15 @@ Optional flags:
 
 ### Usage
 
-#### Creating Issues
+#### Add the bot to a chat
 
-1. Add the bot to your Telegram group
-2. Reply to any message with `/issue <title>`
-3. The bot will create a Pylon issue with the replied message content
+1. Add the bot to a Telegram group
+2. [Link the chat to a PYlon account)[#linking-a-chat-to-pylon]
+
+#### Create an issue
+
+1. Reply to any message with `/issue <title>`
+2. The bot will create a Pylon issue with the replied message content
 
 Example:
 ```
