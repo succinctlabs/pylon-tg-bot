@@ -296,6 +296,8 @@ async fn active(
     pylon_client: Arc<PylonClient>,
     settings: Settings,
 ) -> eyre::Result<()> {
+    let mut count: usize = 0;
+
     bot.send_chat_action(chat_id, ChatAction::Typing).await?;
 
     for (tg_chat_id, pylon_account_id) in &settings.tg_chats_to_pylon_accounts {
@@ -312,13 +314,20 @@ async fn active(
             )
             .parse_mode(ParseMode::MarkdownV2)
             .await?;
+            count += 1;
         }
     }
+
+    bot.send_message(chat_id, format!("✅ Found {count} active chats"))
+        .parse_mode(ParseMode::MarkdownV2)
+        .await?;
 
     Ok(())
 }
 
 async fn unlinked(bot: &Bot, chat_id: ChatId, settings: Settings) -> eyre::Result<()> {
+    let mut count: usize = 0;
+
     bot.send_chat_action(chat_id, ChatAction::Typing).await?;
 
     for (tg_chat_id, pylon_account_id) in &settings.tg_chats_to_pylon_accounts {
@@ -329,16 +338,22 @@ async fn unlinked(bot: &Bot, chat_id: ChatId, settings: Settings) -> eyre::Resul
             bot.send_message(chat_id, chat_title)
                 .parse_mode(ParseMode::MarkdownV2)
                 .await?;
+            count += 1;
         }
     }
+
+    bot.send_message(chat_id, format!("✅ Found {count} unlinked chats"))
+        .parse_mode(ParseMode::MarkdownV2)
+        .await?;
 
     Ok(())
 }
 
 async fn orphans(bot: &Bot, chat_id: ChatId, settings: Settings) -> eyre::Result<()> {
+    let mut count: usize = 0;
     bot.send_chat_action(chat_id, ChatAction::Typing).await?;
 
-    for (tg_chat_id, _) in &settings.tg_chats_to_pylon_accounts {
+    for tg_chat_id in settings.tg_chats_to_pylon_accounts.keys() {
         let chat = bot.get_chat(tg_chat_id.clone()).await?;
 
         if !is_bot_member(bot, chat.id).await? {
@@ -347,8 +362,13 @@ async fn orphans(bot: &Bot, chat_id: ChatId, settings: Settings) -> eyre::Result
             bot.send_message(chat_id, chat_title)
                 .parse_mode(ParseMode::MarkdownV2)
                 .await?;
+            count += 1;
         }
     }
+
+    bot.send_message(chat_id, format!("✅ Found {count} orphans"))
+        .parse_mode(ParseMode::MarkdownV2)
+        .await?;
 
     Ok(())
 }
