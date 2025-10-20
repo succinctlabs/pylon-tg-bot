@@ -45,7 +45,7 @@ Optional flags:
 #### Add the bot to a chat
 
 1. Add the bot to a Telegram group
-2. [Link the chat to a PYlon account)[#linking-a-chat-to-pylon]
+2. [Link the chat to a Pylon account)(#linking-a-chat-to-pylon)
 
 #### Create an issue
 
